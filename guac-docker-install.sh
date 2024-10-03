@@ -1,27 +1,66 @@
 #!/bin/bash
 
+# === Script Variables ===
+MYSQL_HOST=""
+MYSQL_USER=""
+MYSQL_PASSWORD=""
+MYSQL_DB=""
+GUAC_PORT="8080"
+
 # === Parse Input Arguments ===
-while [[ "$#" -gt 0 ]]; do
+while [ "$1" != "" ]; do
     case $1 in
-        --mysql-host) MYSQL_HOST="$2"; shift ;;
-        --mysql-user) MYSQL_USER="$2"; shift ;;
-        --mysql-password) MYSQL_PASSWORD="$2"; shift ;;
-        --mysql-database) MYSQL_DB="$2"; shift ;;
-        --port) GUAC_PORT="$2"; shift ;;
-        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+        --mysql-host ) shift
+                       MYSQL_HOST=$1
+                       ;;
+        --mysql-user ) shift
+                       MYSQL_USER=$1
+                       ;;
+        --mysql-password ) shift
+                           MYSQL_PASSWORD=$1
+                           ;;
+        --mysql-database ) shift
+                           MYSQL_DB=$1
+                           ;;
+        --port ) shift
+                 GUAC_PORT=$1
+                 ;;
     esac
     shift
 done
 
+# === Check for Missing Parameters ===
+if [ -z "$MYSQL_HOST" ] || [ -z "$MYSQL_USER" ] || [ -z "$MYSQL_PASSWORD" ] || [ -z "$MYSQL_DB" ]; then
+    echo "Missing one or more required parameters."
+    exit 1
+fi
+
 # === Install Docker ===
-sudo apt update
-sudo apt install -y docker.io
+apt-get update && apt-get install -y docker.io wget
 
-# === Pull and Run Docker Containers for Guacamole and MySQL ===
-sudo docker run --name guacd -d guacamole/guacd
-sudo docker run --name guacamole -d --link guacd:guacd \
-  -e MYSQL_HOSTNAME=$MYSQL_HOST -e MYSQL_PORT=3306 \
-  -e MYSQL_DATABASE=$MYSQL_DB -e MYSQL_USER=$MYSQL_USER \
-  -e MYSQL_PASSWORD=$MYSQL_PASSWORD -p $GUAC_PORT:8080 guacamole/guacamole
+# === Run Guacamole and guacd Containers ===
+docker run --name guacd -d guacamole/guacd
+docker run --name guacamole --link guacd:guacd -e MYSQL_HOSTNAME=$MYSQL_HOST \
+  -e MYSQL_PORT=3306 -e MYSQL_DATABASE=$MYSQL_DB -e MYSQL_USER=$MYSQL_USER \
+  -e MYSQL_PASSWORD=$MYSQL_PASSWORD -d -p $GUAC_PORT:8080 guacamole/guacamole
 
-echo "Guacamole setup using Docker is complete!"
+# === Download and Import the Guacamole Schema ===
+# Download schema file
+wget https://raw.githubusercontent.com/apache/guacamole-client/master/extensions/guacamole-auth-jdbc/modules/guacamole-auth-jdbc-mysql/schema/001-create-schema.sql -O /opt/guacamole-initdb.sql
+
+# Wait for the MySQL server to be ready before attempting schema import
+echo "Waiting for MySQL server to be ready..."
+until mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; do
+    sleep 5
+    echo "Trying to connect to MySQL server..."
+done
+
+# Import the schema
+echo "Importing the Guacamole schema into database $MYSQL_DB..."
+mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" $MYSQL_DB < /opt/guacamole-initdb.sql
+
+# === Ensure Docker Containers are Running ===
+docker start guacd
+docker start guacamole
+
+echo "Guacamole setup completed successfully."
