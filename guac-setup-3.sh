@@ -9,11 +9,20 @@ GUACADMIN_PASSWORD="$5"
 
 # Install necessary packages
 sudo apt-get update
-sudo apt-get install -y docker.io docker-compose mysql-client-core-5.7
+
+# Install Docker
+sudo apt-get install -y docker.io
 
 # Enable and start Docker
 sudo systemctl enable docker
 sudo systemctl start docker
+
+# Install Docker Compose
+sudo apt-get install -y python3-pip
+sudo pip3 install docker-compose
+
+# Install MySQL client
+sudo apt-get install -y mysql-client
 
 # Create Guacamole configuration directory
 sudo mkdir -p /etc/guacamole
