@@ -6,6 +6,7 @@ MYSQL_DB="$2"
 MYSQL_USER="$3"
 MYSQL_PASSWORD="$4"
 GUACADMIN_PASSWORD="$5"
+ADMIN_USERNAME="$6"
 
 # Install necessary packages
 sudo apt-get update
@@ -17,9 +18,8 @@ sudo apt-get install -y docker.io
 sudo systemctl enable docker
 sudo systemctl start docker
 
-# Install Docker Compose
-sudo apt-get install -y python3-pip
-sudo pip3 install docker-compose
+# Install Docker Compose as a plugin
+sudo apt-get install -y docker-compose-plugin
 
 # Install MySQL client
 sudo apt-get install -y mysql-client
@@ -39,9 +39,9 @@ EOL
 # Adjust permissions
 sudo chown -R $ADMIN_USERNAME:$ADMIN_USERNAME /etc/guacamole
 
-# Create Docker Compose file
+# Create Docker Compose file using new syntax
 sudo bash -c "cat > /home/$ADMIN_USERNAME/docker-compose.yml" <<EOL
-version: "3"
+version: "3.9"
 services:
   guacd:
     image: guacamole/guacd
@@ -63,25 +63,28 @@ EOL
 # Adjust permissions
 sudo chown $ADMIN_USERNAME:$ADMIN_USERNAME /home/$ADMIN_USERNAME/docker-compose.yml
 
-# Start Docker Compose
+# Start Docker Compose using the new syntax
 cd /home/$ADMIN_USERNAME
-sudo docker-compose up -d
+sudo docker compose up -d
 
 # Wait for Guacamole to be ready
 sleep 30
 
-# Download Guacamole schema
+# Download Guacamole schema for MySQL 8.0
 sudo docker run --rm guacamole/guacamole /opt/guacamole/bin/initdb.sh --mysql > initdb.sql
 
-# Import schema into MySQL
+# Import schema into MySQL (adjust for MySQL 8.0)
 mysql -h $MYSQL_HOST -u $MYSQL_USER -p$MYSQL_PASSWORD $MYSQL_DB < initdb.sql
 
 # Create guacadmin user with specified password
 HASHED_PASSWORD=$(echo -n "$GUACADMIN_PASSWORD" | openssl md5 | awk '{print $2}')
 mysql -h $MYSQL_HOST -u $MYSQL_USER -p$MYSQL_PASSWORD $MYSQL_DB <<EOF
-INSERT INTO guacamole_user (username, password_hash, password_salt, disabled, expired, access_window_start, access_window_end, valid_from, valid_until, timezone) VALUES ('guacadmin', UNHEX('$HASHED_PASSWORD'), UNHEX(''), 0, 0, NULL, NULL, NULL, NULL, '');
-INSERT INTO guacamole_user_permission (user_id, affected_user_id, permission) SELECT user_id, user_id, 'READ' FROM guacamole_user WHERE username='guacadmin';
-INSERT INTO guacamole_system_permission (user_id, permission) SELECT user_id, 'ADMINISTER' FROM guacamole_user WHERE username='guacadmin';
+INSERT INTO guacamole_user (entity_id, user_id, username, password_hash, password_salt, password_date, disabled, expired, access_window_start, access_window_end, valid_from, valid_until, timezone)
+VALUES (1, 1, 'guacadmin', UNHEX('$HASHED_PASSWORD'), UNHEX(''), NOW(), 0, 0, NULL, NULL, NULL, NULL, '');
+INSERT INTO guacamole_user_permission (entity_id, affected_user_id, permission)
+SELECT entity_id, entity_id, 'READ' FROM guacamole_user WHERE username='guacadmin';
+INSERT INTO guacamole_system_permission (entity_id, permission)
+SELECT entity_id, 'ADMINISTER' FROM guacamole_user WHERE username='guacadmin';
 EOF
 
 # Restart Guacamole container
