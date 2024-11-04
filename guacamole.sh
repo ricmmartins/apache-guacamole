@@ -62,50 +62,33 @@ until mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -e "SELECT 1;" > /
     echo "Trying to connect to MySQL server..."
 done
 
-# Check if the database exists
-DB_EXISTS=$(mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -e "SHOW DATABASES LIKE '$MYSQL_DB';" | grep "$MYSQL_DB" > /dev/null; echo "$?")
+# Drop and recreate the database to avoid schema conflicts
+mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -e "DROP DATABASE IF EXISTS $MYSQL_DB; CREATE DATABASE $MYSQL_DB;"
 
-if [ "$DB_EXISTS" -ne 0 ]; then
-    echo "Database $MYSQL_DB does not exist. Creating database..."
-    mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -e "CREATE DATABASE $MYSQL_DB;"
+# Import the schema
+mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" $MYSQL_DB < /opt/guacamole-initdb.sql
+
+if [ $? -ne 0 ]; then
+    echo "Failed to import the schema. Please check MySQL connection details and schema file."
+    exit 1
 fi
-
-# === Check if Guacamole Tables Exist ===
-TABLE_COUNT=$(mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -D $MYSQL_DB -e "SHOW TABLES;" | wc -l)
-
-if [ "$TABLE_COUNT" -eq 0 ]; then
-    echo "No tables found in $MYSQL_DB. Importing schema..."
-    mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" $MYSQL_DB < /opt/guacamole-initdb.sql
-
-    if [ $? -ne 0 ]; then
-        echo "Failed to import the schema. Please check MySQL connection details and schema file."
-        exit 1
-    fi
-    echo "Schema imported successfully into $MYSQL_DB."
-else
-    echo "Guacamole tables already exist in $MYSQL_DB. Skipping schema import."
-fi
+echo "Schema imported successfully into $MYSQL_DB."
 
 # === Set Default Admin Username and Password ===
-USER_COUNT=$(mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -D $MYSQL_DB -e "SELECT COUNT(*) FROM guacamole_user;" | tail -n 1)
+echo "Creating default admin user 'guacadmin' with password 'guacadmin'."
+SQL_COMMAND="
+USE $MYSQL_DB;
+INSERT INTO guacamole_user (username, password_salt, password_hash, disabled, expired, access_window_start, access_window_end, valid_from, valid_until)
+VALUES ('guacadmin', UNHEX(SHA2(UUID(), 256)), UNHEX(SHA2(CONCAT('guacadmin', SHA2(UUID(), 256)), 256)), 0, 0, 0, 0, 0, 0);
+INSERT INTO guacamole_user_permission (entity_id, permission) SELECT user_id, 'READ' FROM guacamole_user WHERE username='guacadmin';
+INSERT INTO guacamole_system_permission (entity_id, permission) SELECT user_id, 'ADMINISTER' FROM guacamole_user WHERE username='guacadmin';
+"
+mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -e "$SQL_COMMAND"
 
-if [ "$USER_COUNT" -eq 0 ]; then
-    echo "No existing users found. Creating default admin user 'guacadmin' with password 'guacadmin'."
-    SQL_COMMAND="
-    USE $MYSQL_DB;
-    INSERT INTO guacamole_user (username, password_salt, password_hash, disabled, expired, access_window_start, access_window_end, valid_from, valid_until) VALUES ('guacadmin', UNHEX(SHA2(UUID(), 256)), UNHEX(SHA2(CONCAT('guacadmin', SHA2(UUID(), 256)), 256)), 0, 0, 0, 0, 0, 0);
-    INSERT INTO guacamole_user_permission (entity_id, permission) SELECT user_id, 'READ' FROM guacamole_user WHERE username='guacadmin';
-    INSERT INTO guacamole_system_permission (entity_id, permission) SELECT user_id, 'ADMINISTER' FROM guacamole_user WHERE username='guacadmin';
-    "
-    mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -e "$SQL_COMMAND"
-
-    if [ $? -eq 0 ]; then
-        echo "Default admin user 'guacadmin' created successfully."
-    else
-        echo "Failed to create default admin user. Please check database configuration."
-    fi
+if [ $? -eq 0 ]; then
+    echo "Default admin user 'guacadmin' created successfully."
 else
-    echo "Users already exist in the database. Skipping default admin creation."
+    echo "Failed to create default admin user. Please check database configuration."
 fi
 
 # === Ensure Docker Containers are Running ===
