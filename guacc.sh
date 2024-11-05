@@ -4,10 +4,10 @@
 MYSQL_HOST=""
 MYSQL_USER=""
 MYSQL_PASSWORD=""
-MYSQL_DB=""
+MYSQL_DB="guacdb"  # Ensure this matches the database name defined in your setup
 GUAC_PORT="8080"
 GUAC_VERSION="1.5.5"
-ADMIN_PASSWORD=""
+ADMIN_PASSWORD=""  # This will be passed as a parameter
 
 # === Parse Input Arguments ===
 while [ "$1" != "" ]; do
@@ -57,26 +57,31 @@ docker run --name guacamole --link guacd:guacd -e MYSQL_HOSTNAME=$MYSQL_HOST \
 SCHEMA_URL="https://raw.githubusercontent.com/apache/guacamole-client/1.5.5/extensions/guacamole-auth-jdbc/modules/guacamole-auth-jdbc-mysql/schema/001-create-schema.sql"
 wget $SCHEMA_URL -O /opt/guacamole-initdb.sql
 
-# === Check MySQL Server Connectivity and Create Database if Missing ===
-echo "Checking MySQL server connectivity and database..."
+# === Check MySQL Server Connectivity and Ensure Database Creation ===
+echo "Checking MySQL server connectivity and ensuring database creation..."
 
-# Wait for the MySQL server to be ready before attempting schema import
-until mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; do
+# Wait for MySQL to be ready before proceeding
+until mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "SHOW DATABASES;" > /dev/null 2>&1; do
     sleep 5
-    echo "Trying to connect to MySQL server..."
+    echo "Waiting for MySQL server to be ready..."
 done
 
-# Drop and recreate the database to avoid schema conflicts
-mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -e "DROP DATABASE IF EXISTS $MYSQL_DB; CREATE DATABASE $MYSQL_DB;"
+# Ensure 'guacdb' database exists
+mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS $MYSQL_DB;"
 
-# Import the schema
-mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" $MYSQL_DB < /opt/guacamole-initdb.sql
-
-if [ $? -ne 0 ]; then
-    echo "Failed to import the schema. Please check MySQL connection details and schema file."
-    exit 1
+# Import the schema only if tables are missing
+TABLE_COUNT=$(mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -D "$MYSQL_DB" -e "SHOW TABLES;" | wc -l)
+if [ "$TABLE_COUNT" -eq 0 ]; then
+    echo "Importing Guacamole schema into $MYSQL_DB..."
+    mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DB" < /opt/guacamole-initdb.sql
+    if [ $? -ne 0 ]; then
+        echo "Failed to import the schema. Please check MySQL connection details and schema file."
+        exit 1
+    fi
+    echo "Schema imported successfully."
+else
+    echo "Guacamole tables already exist. Skipping schema import."
 fi
-echo "Schema imported successfully into $MYSQL_DB."
 
 # === Set Default Admin Username and Password ===
 echo "Creating default admin user 'guacadmin' with the provided password."
@@ -90,7 +95,7 @@ ON DUPLICATE KEY UPDATE password_hash=UNHEX(SHA2('$ADMIN_PASSWORD', 256)), passw
 INSERT INTO guacamole_user_permission (entity_id, permission) SELECT user_id, 'READ' FROM guacamole_user WHERE username='guacadmin';
 INSERT INTO guacamole_system_permission (entity_id, permission) SELECT user_id, 'ADMINISTER' FROM guacamole_user WHERE username='guacadmin';
 "
-mysql -h $MYSQL_HOST -u $MYSQL_USER -p"$MYSQL_PASSWORD" -e "$SQL_COMMAND"
+mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "$SQL_COMMAND"
 
 if [ $? -eq 0 ]; then
     echo "Default admin user 'guacadmin' created successfully."
