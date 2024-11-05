@@ -3,6 +3,10 @@
 # Suppress debconf frontend warnings
 export DEBIAN_FRONTEND=noninteractive
 
+# Set the log file path
+LOG_FILE="/var/log/guac_deployment.log"
+exec > >(tee -a $LOG_FILE) 2>&1
+
 # MySQL connection parameters
 MYSQL_HOST="$1"
 MYSQL_USER="$2"
@@ -61,3 +65,6 @@ docker run --name guacamole --restart always -d --link guacd:guacd \
     -p 8080:8080 $GUACAMOLE_IMAGE
 
 echo "Guacamole deployment completed successfully."
+echo "Initial login credentials for Guacamole:"
+echo "  Username: guacadmin"
+echo "  Password: $GUACADMIN_PASSWORD"
