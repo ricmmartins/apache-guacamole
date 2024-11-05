@@ -22,18 +22,6 @@ GUACAMOLE_IMAGE="guacamole/guacamole:1.5.5"
 echo "Updating system packages and installing Docker..."
 apt-get update -y && apt-get install -y docker.io
 
-# === MySQL Connection Verification ===
-echo "Validating MySQL connection parameters..."
-if ! mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "USE $MYSQL_DB" 2>/dev/null; then
-    echo "MySQL connection failed: database '$MYSQL_DB' not accessible. Check MySQL parameters."
-    exit 1
-fi
-
-# === Docker Images Pulling ===
-echo "Pulling Docker images for Guacamole..."
-docker pull $GUACD_IMAGE
-docker pull $GUACAMOLE_IMAGE
-
 # === MySQL Schema Setup ===
 echo "Checking if Guacamole schema is already present in MySQL..."
 TABLE_EXISTS=$(mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -D "$MYSQL_DB" -e "SHOW TABLES LIKE 'guacamole_connection_group';" | grep -c 'guacamole_connection_group')
@@ -45,6 +33,18 @@ if [ "$TABLE_EXISTS" -eq 0 ]; then
 else
     echo "Schema already exists, skipping schema application."
 fi
+
+# === MySQL Connection Verification ===
+echo "Validating MySQL connection parameters..."
+if ! mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "USE $MYSQL_DB" 2>/dev/null; then
+    echo "MySQL connection failed: database '$MYSQL_DB' not accessible. Check MySQL parameters."
+    exit 1
+fi
+
+# === Docker Images Pulling ===
+echo "Pulling Docker images for Guacamole..."
+docker pull $GUACD_IMAGE
+docker pull $GUACAMOLE_IMAGE
 
 # === Guacamole & Guacd Container Launch ===
 echo "Launching Guacamole and Guacd containers..."
