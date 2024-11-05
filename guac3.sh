@@ -14,6 +14,12 @@ GUACADMIN_PASSWORD="$5"
 GUACD_IMAGE="guacamole/guacd:1.5.5"
 GUACAMOLE_IMAGE="guacamole/guacamole:1.5.5"
 
+# Logging the MySQL connection details for verification
+echo "Connecting to MySQL with:"
+echo "  MYSQL_HOST: $MYSQL_HOST"
+echo "  MYSQL_USER: $MYSQL_USER"
+echo "  MYSQL_DB: $MYSQL_DB"
+
 # Ensure Docker is installed
 echo "Installing Docker if not already installed..."
 apt-get update -y && apt-get install -y docker.io
