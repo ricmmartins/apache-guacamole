@@ -18,21 +18,20 @@ GUACADMIN_PASSWORD="$5"
 GUACD_IMAGE="guacamole/guacd:1.5.5"
 GUACAMOLE_IMAGE="guacamole/guacamole:1.5.5"
 
-# === System Updates & Docker Installation ===
-echo "Updating system packages and installing Docker..."
-apt-get update -y && apt-get install -y docker.io
+# === System Updates & Package Installation ===
+echo "Updating system packages and installing Docker and MySQL client..."
+apt-get update -y && apt-get install -y docker.io mysql-client wget
 
-# === MySQL Schema Setup ===
-echo "Checking if Guacamole schema is already present in MySQL..."
-TABLE_EXISTS=$(mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -D "$MYSQL_DB" -e "SHOW TABLES LIKE 'guacamole_connection_group';" | grep -c 'guacamole_connection_group')
+# === Download the Guacamole Schema for Version 1.5.5 ===
+SCHEMA_URL="https://raw.githubusercontent.com/apache/guacamole-client/1.5.5/extensions/guacamole-auth-jdbc/modules/guacamole-auth-jdbc-mysql/schema/001-create-schema.sql"
+SCHEMA_FILE="/opt/guacamole-initdb.sql"
+echo "Downloading Guacamole schema..."
+wget $SCHEMA_URL -O $SCHEMA_FILE
 
-if [ "$TABLE_EXISTS" -eq 0 ]; then
-    echo "Applying Guacamole schema to MySQL..."
-    cat /opt/guacamole/schema/*.sql | mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DB"
-    echo "Schema applied successfully."
-else
-    echo "Schema already exists, skipping schema application."
-fi
+# === MySQL Schema Application ===
+echo "Applying Guacamole schema to MySQL..."
+mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DB" < $SCHEMA_FILE
+echo "Schema applied successfully."
 
 # === MySQL Connection Verification ===
 echo "Validating MySQL connection parameters..."
